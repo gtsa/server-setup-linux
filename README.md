@@ -3,17 +3,18 @@
 **`setup_server.sh`** is an automation script designed to streamline the initial setup of an Ubuntu server. It performs essential configuration tasks and installs software commonly needed for server environments, making your server ready for use with minimal manual intervention. The script handles tasks such as updating system packages, setting up Docker and PostgreSQL, configuring security measures, and more.
 
 ### Features:
-- System update and upgrade
-- Docker and Docker Compose installation
-- Non-root user creation with optional Docker group membership
-- SSH configuration for key-based and password authentication
-- Firewall and security hardening
-- Essential tools installation (e.g., curl, git, vim)
-- Nginx web server setup
-- PostgreSQL database configuration with a dynamic password prompt
-- Timezone and NTP synchronization
-- Automated daily backups using rsync
+- **System update and upgrade**
+- **Docker and Docker Compose installation**
+- **Non-root user creation with optional Docker group membership**
+- **SSH configuration for key-based and password authentication**
+- **Firewall and security hardening**
+- **Essential tools installation** (e.g., curl, git, vim)
+- **Nginx web server setup**
+- **PostgreSQL database configuration with a dynamic password prompt**
+- **Timezone and NTP synchronization**
+- **Automated daily backups using rsync**
 - **Verification steps** to confirm that key actions were executed correctly
+- **Oh‑My‑Zsh installation** for both root and the new user (with zsh set as the default shell)
 
 ### Prerequisites:
 - A freshly installed Ubuntu server (tested on Ubuntu 20.04+).
@@ -21,20 +22,19 @@
 
 ### Instructions:
 1. Copy the script to your server.
-2. Make the script executable with:
+2. Make the script executable:
    ```bash
    chmod +x setup_server.sh
    ```
-3. Run the script using:
+3. Run the script:
    ```bash
    ./setup_server.sh
    ```
-   and follow the on-screen prompts to complete the setup.
+   Follow the on-screen prompts to complete the setup.
 
-This script is ideal for quickly setting up a secure, functional server environment tailored to web development, Docker containers, and database management.
+This script is ideal for quickly setting up a secure, functional server environment tailored to web development, Docker containers, database management, and a modern shell experience with Oh‑My‑Zsh.
 
-<br>
-<br>
+<br><br>
 
 ## Steps Performed by the Script
 
@@ -104,11 +104,11 @@ Run `systemctl status ssh` to check that SSH is active and running.
 
 ### 6. **Install Essential Tools**
 Installs commonly used utilities:
-```bash
+```bas:
 sudo apt install -y curl wget git vim net-tools htop unzip
 ```
 **Verification:**
-Check the versions (for example, run `git --version` and `vim --version`) to confirm installation.
+Check the versions (e.g., run `git --version` and `vim --version`) to confirm installation.
 
 ---
 
@@ -128,8 +128,8 @@ Access your server’s IP in a web browser to see the Nginx welcome page or run 
 Prompts for a PostgreSQL password and configures the `postgres` user:
 ```bash
 sudo apt install -y postgresql postgresql-contrib
-read -p "Enter the PostgreSQL password for the 'postgres' user: " PG_PASS
-sudo -u postgres psql -c "ALTER USER postgres PASSWORD '$PG_PASS';"
+read -s -p "Enter a secure password for the PostgreSQL 'postgres' user: " POSTGRES_PASSWORD
+sudo -u postgres psql -c "ALTER USER postgres PASSWORD '$POSTGRES_PASSWORD';"
 ```
 **Verification:**
 Connect to PostgreSQL using `sudo -u postgres psql` and run `\conninfo` to verify connection details.
@@ -189,27 +189,30 @@ crontab cron_bak
 **Verification:**
 Run `crontab -l` to confirm that the backup job has been scheduled.
 
-<br>
+---
 
-## Verification and Troubleshooting
+### 13. **Install and Configure Oh‑My‑Zsh**
+Installs zsh and Oh‑My‑Zsh for both root and the new user, and sets zsh as the default shell:
+```bash
+sudo apt install -y zsh
+# Install Oh‑My‑Zsh for root
+export RUNZSH=no
+sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" --unattended
+sudo chsh -s "$(which zsh)" root
 
-After the script completes, perform the following checks to ensure everything was set up correctly:
-- **System Updates:** Run `sudo apt update` to confirm there are no pending updates.
-- **Docker:** Execute `docker version` and `docker-compose version` to verify Docker installations.
-- **User:** Run `id $NEW_USER` to confirm the new user's group memberships.
-- **SSH:** Use `systemctl status ssh` and try connecting via SSH.
-- **Nginx:** Access the server’s IP in a browser to verify the Nginx welcome page.
-- **PostgreSQL:** Connect using `sudo -u postgres psql` and run `\conninfo`.
-- **Firewall:** Verify active rules with `sudo ufw status`.
-- **Backups:** Confirm the scheduled cron job using `crontab -l`.
+# Install Oh‑My‑Zsh for the new user
+sudo -u $NEW_USER sh -c 'export RUNZSH=no; sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" --unattended'
+sudo chsh -s "$(which zsh)" $NEW_USER
+```
+**Verification:**
+Log in as root or the new user and run `echo $SHELL` to ensure it points to zsh.
 
 <br>
 
 ## Authentication Notes: SSH Key-Based Authentication
 
-For enhanced security, consider using SSH key-based authentication rather than relying solely on passwords. Follow these steps:
-
-1. **Generate an SSH Key Pair on Your Local Machine (if you don't already have one):**
+For enhanced security, it is recommended to use SSH key-based authentication:
+1. **Generate an SSH Key Pair on Your Local Machine (if needed):**
    ```bash
    ssh-keygen -t ed25519 -C "your_email@example.com"
    ```
@@ -221,7 +224,7 @@ For enhanced security, consider using SSH key-based authentication rather than r
      ssh root@your_server_ip
      sudo su - $NEW_USER
      ```
-   - **Create the `.ssh` directory (if it doesn’t exist) and set permissions:**
+   - **Create the `.ssh` directory and set permissions:**
      ```bash
      mkdir -p ~/.ssh
      chmod 700 ~/.ssh
@@ -231,7 +234,7 @@ For enhanced security, consider using SSH key-based authentication rather than r
      nano ~/.ssh/authorized_keys
      ```
      *(Copy the contents of your local public key file, for example by running `cat ~/.ssh/id_ed25519.pub` on your local machine, and paste them into this file.)*
-   - **Set the proper permissions for the file:**
+   - **Set the proper permissions:**
      ```bash
      chmod 600 ~/.ssh/authorized_keys
      ```
@@ -241,6 +244,21 @@ For enhanced security, consider using SSH key-based authentication rather than r
    ```bash
    ssh $NEW_USER@your_server_ip
    ```
+
+<br>
+
+## Verification and Troubleshooting
+
+After running the script, verify:
+- **System Updates:** Run `sudo apt update` to confirm there are no pending updates.
+- **Docker:** Execute `docker version` and `docker-compose version`.
+- **User:** Run `id $NEW_USER` to check group memberships.
+- **SSH:** Use `systemctl status ssh` and test SSH connectivity.
+- **Nginx:** Access your server’s IP in a browser or run `systemctl status nginx`.
+- **PostgreSQL:** Connect using `sudo -u postgres psql` and run `\conninfo`.
+- **Firewall:** Verify rules with `sudo ufw status`.
+- **Backups:** Confirm the scheduled cron job with `crontab -l`.
+- **Oh‑My‑Zsh:** Log in and run `echo $SHELL` to ensure zsh is the default shell.
 
 <br>
 

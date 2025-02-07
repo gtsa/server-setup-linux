@@ -127,6 +127,21 @@ fi
 rm -f cron_bak
 echo "Backup configuration completed."
 
+# 13. Install and Configure Oh‑My‑Zsh for Root and the New User
+echo "Installing zsh..."
+sudo apt install -y zsh
+echo "Installing Oh‑My‑Zsh for root..."
+export RUNZSH=no
+sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" --unattended
+sudo chsh -s "$(which zsh)" root
+
+if [ -n "$NEW_USER" ]; then
+  echo "Installing Oh‑My‑Zsh for user $NEW_USER..."
+  sudo -u "$NEW_USER" sh -c 'export RUNZSH=no; sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" --unattended'
+  sudo chsh -s "$(which zsh)" "$NEW_USER"
+fi
+echo "Oh‑My‑Zsh installation and default shell configuration completed."
+
 # Final Verification Block
 echo "--------------------------------------------------"
 echo "Verification Summary:"
