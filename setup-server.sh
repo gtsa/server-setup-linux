@@ -60,7 +60,31 @@ sudo sed -i "/AuthenticationMethods/d" /etc/ssh/sshd_config
 echo "AuthenticationMethods publickey,password" | sudo tee -a /etc/ssh/sshd_config
 sudo sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/" /etc/ssh/sshd_config
 echo "Restarting SSH service..."
-sudo systemctl restart sshd
+sudo systemctl restart ssh || sudo systemctl restart sshd
+echo "SSH configuration updated."
+
+
+
+# 5. Configure SSH for hardened, key-only authentication
+echo "Configuring SSH for secure key-based login..."
+# Set core authentication settings
+sudo sed -i "s/^#\?PasswordAuthentication.*/PasswordAuthentication no/" /etc/ssh/sshd_config
+sudo sed -i "s/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/" /etc/ssh/sshd_config
+# Set LoginGraceTime and max tries/sessions
+sudo sed -i "s/^#\?LoginGraceTime.*/LoginGraceTime 20/" /etc/ssh/sshd_config
+sudo sed -i "s/^#\?MaxAuthTries.*/MaxAuthTries 2/" /etc/ssh/sshd_config
+sudo sed -i "s/^#\?MaxSessions.*/MaxSessions 10/" /etc/ssh/sshd_config
+# Set root login policy
+sudo sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin no/" /etc/ssh/sshd_config
+# Remove forced AuthenticationMethods line if present
+sudo sed -i "/^AuthenticationMethods/d" /etc/ssh/sshd_config
+# Ensure AllowUsers is set to $NEW_USER only (append if not present)
+if ! grep -q "^AllowUsers $NEW_USER" /etc/ssh/sshd_config; then
+  echo "AllowUsers $NEW_USER" | sudo tee -a /etc/ssh/sshd_config > /dev/null
+fi
+# Restart SSH service
+echo "Restarting SSH service..."
+sudo systemctl restart ssh || sudo systemctl restart sshd
 echo "SSH configuration updated."
 
 # 6. Install Essential Tools
@@ -99,7 +123,66 @@ sudo systemctl disable apache2.service 2>/dev/null || true
 sudo apt install -y fail2ban
 sudo systemctl enable fail2ban
 sudo systemctl start fail2ban
-echo "Fail2Ban enabled."
+echo "Fail2Ban installed and enabled."
+# Configure custom Fail2Ban rules for SSH
+echo "Configuring custom Fail2Ban rules for SSH..."
+sudo tee /etc/fail2ban/jail.d/ssh.conf > /dev/null <<EOF
+[sshd]
+enabled = true
+port    = ssh
+filter  = sshd
+logpath = /var/log/auth.log
+bantime = 1h
+findtime = 10m
+maxretry = 3
+EOF
+# Prompt for optional email alerts
+# --- Email alert setup for Fail2Ban & SSH logins (currently disabled to reduce dependencies)
+# --- Re-enable by uncommenting below and ensuring msmtp/msmtp-mta is configured
+# read -p "Enable email alerts for Fail2Ban bans and successful NEW-IP SSH logins? (y/n): " ENABLE_EMAIL
+# if [[ "$ENABLE_EMAIL" =~ ^[Yy]$ ]]; then
+#   sudo apt install -y mailutils sendmail
+#   echo "Mail tools installed and enabled."
+#   read -p "Enter your email address for SSH alerts: " ALERT_EMAIL
+#   # Configure Fail2Ban alert emails
+#   sudo sed -i "s/^destemail = .*/destemail = $ALERT_EMAIL/" /etc/fail2ban/jail.conf
+#   HOSTNAME=$(hostname)
+#   sudo sed -i "s/^sender = .*/sender = fail2ban@$HOSTNAME/" /etc/fail2ban/jail.conf 
+#   sudo sed -i "s/^action = .*/action = %(action_mwl)s/" /etc/fail2ban/jail.conf
+#   # Set up SSH login alerts for NEW IPs only
+#   echo "Setting up SSH login alerts only for new IPs..."
+#   sudo tee /etc/security/notify-new-ip-login.sh > /dev/null <<'EOF'
+# #!/bin/bash
+# KNOWN_IPS_FILE="/var/log/known_ssh_ips.txt"
+# CURRENT_IP="$PAM_RHOST"
+# USER="$PAM_USER"
+# HOSTNAME="$(hostname)"
+# DATE="$(date)"
+# EMAIL="__ALERT_EMAIL__"
+# # Create known IP file if not exists
+# touch $KNOWN_IPS_FILE
+# # Check if the IP is already known
+# if ! grep -q "$CURRENT_IP" $KNOWN_IPS_FILE; then
+#   echo "$CURRENT_IP" >> $KNOWN_IPS_FILE
+#   SUBJECT="NEW SSH LOGIN to $HOSTNAME from $CURRENT_IP"
+#   BODY="User: $USER\nNew IP: $CURRENT_IP\nDate: $DATE"
+#   echo -e "$BODY" | mail -s "$SUBJECT" $EMAIL
+# fi
+# EOF
+#   sudo sed -i "s/__ALERT_EMAIL__/$ALERT_EMAIL/" /etc/security/notify-new-ip-login.sh
+#   sudo chmod +x /etc/security/notify-new-ip-login.sh
+#   # Hook into PAM
+#   if ! grep -q notify-new-ip-login.sh /etc/pam.d/sshd; then
+#     sudo sed -i '/^session.*pam_loginuid.so/a session optional pam_exec.so /etc/security/notify-new-ip-login.sh' /etc/pam.d/sshd
+#   fi
+#   echo "Email alerts will now be sent for:"
+#   echo "  - Fail2Ban bans"
+#   echo "  - Successful SSH logins from new IPs"
+#   echo -e "Test: Your SSH alert email setup is complete.\nDate: $(date)\nHostname: $(hostname)" \
+#   | mail -s "✔️ Test SSH Alert Email from $(hostname)" "$ALERT_EMAIL"
+# fi
+# Restart Fail2Ban to apply changes
+sudo systemctl restart fail2ban
 
 # 11. Configure Firewall
 echo "Configuring UFW..."
@@ -110,38 +193,53 @@ sudo ufw allow 443/tcp
 sudo ufw --force enable
 echo "UFW configured with essential ports."
 
-# 12. Install Monitoring Tools and Set Up Backups
-echo "Installing monitoring tools..."
-sudo apt install -y nload
-read -p "Enter the backup directory (default: /backup): " BACKUP_DIR
-BACKUP_DIR=${BACKUP_DIR:-/backup}
-sudo mkdir -p "$BACKUP_DIR"
-sudo chown "$USER:$USER" "$BACKUP_DIR"
-# Add a backup cron job if not already present
-crontab -l > cron_bak 2>/dev/null
-BACKUP_CRON="0 0 * * * rsync -a /var/www $BACKUP_DIR"
-if ! grep -q "$BACKUP_CRON" cron_bak; then
-  echo "$BACKUP_CRON" >> cron_bak
-  crontab cron_bak
-fi
-rm -f cron_bak
-echo "Backup configuration completed."
+# 12 (maybe not required). Install Monitoring Tools and Set Up Backups
+# echo "Installing monitoring tools..."
+# sudo apt install -y nload
+# read -p "Enter the backup directory (default: /backup): " BACKUP_DIR
+# BACKUP_DIR=${BACKUP_DIR:-/backup}
+# # Create the backup directory and set correct ownership
+# echo "Creating backup directory at $BACKUP_DIR..."
+# sudo mkdir -p "$BACKUP_DIR"
+# sudo chown "$NEW_USER:$NEW_USER" "$BACKUP_DIR"
+# echo "Backup directory created and owned by $NEW_USER"
+# # Add a cron job under the new user
+# BACKUP_CRON="0 0 * * * rsync -a /var/www $BACKUP_DIR"
+# sudo -u "$NEW_USER" bash -c '
+#   crontab -l 2>/dev/null > cron_bak || true
+#   BACKUP_CRON="0 0 * * * rsync -a /var/www /backup"
+#   if ! grep -q "$BACKUP_CRON" cron_bak; then
+#     echo "$BACKUP_CRON" >> cron_bak
+#     crontab cron_bak
+#     echo "Backup cron job registered for $USER"
+#   else
+#     echo "Backup cron job already exists for $USER"
+#   fi
+#   rm -f cron_bak
+# '
+# echo "Backup configuration completed."
 
-# 13. Install and Configure Oh‑My‑Zsh for Root and the New User
-echo "Installing zsh..."
-sudo apt install -y zsh
-echo "Installing Oh‑My‑Zsh for root..."
-export RUNZSH=no
-sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" --unattended
-sudo chsh -s "$(which zsh)" root
+# 13. Install and Configure Oh‑My‑Zsh for the New User
+echo "Installing zsh and fonts..."
+sudo apt install -y zsh fonts-powerline
 
 if [ -n "$NEW_USER" ]; then
   echo "Installing Oh‑My‑Zsh for user $NEW_USER..."
-  sudo -u "$NEW_USER" sh -c 'export RUNZSH=no; sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" --unattended'
+  sudo -u "$NEW_USER" sh -c '
+    export RUNZSH=no
+    sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" --unattended
+  '
   sudo chsh -s "$(which zsh)" "$NEW_USER"
-fi
-echo "Oh‑My‑Zsh installation and default shell configuration completed."
 
+  echo "Setting agnoster theme for $NEW_USER..."
+  sudo -u "$NEW_USER" sed -i 's/^ZSH_THEME=.*/ZSH_THEME="agnoster"/' /home/$NEW_USER/.zshrc
+
+  echo "Oh‑My‑Zsh installed and agnoster theme activated for $NEW_USER"
+fi
+
+
+# ---------------------------------
+# ---------------------------------
 # Final Verification Block
 echo "--------------------------------------------------"
 echo "Verification Summary:"
@@ -149,7 +247,7 @@ echo "Docker version:"; docker version
 echo "Docker Compose version:"; docker-compose version
 echo "Nginx status:"; sudo systemctl status nginx --no-pager | head -n 5
 echo "PostgreSQL connection info:"; sudo -u postgres psql -c "\conninfo"
-echo "SSH service status:"; sudo systemctl status sshd --no-pager | head -n 5
+echo "SSH service status:"; (sudo systemctl status ssh --no-pager || sudo systemctl status sshd --no-pager) | head -n 5
 echo "UFW status:"; sudo ufw status
 echo "--------------------------------------------------"
 
